@@ -7,7 +7,23 @@ PYTHON_INCLUDE := /usr/include/python3.4m \
 ---
 # [但是可能发现没有相关哦路径，这个时候，sudo apt-get install python3-pip 就会生成相关的路径，接下来，安装哦一切包都用pip3来装]
 
-
+---
+其中sklearn的安装需要scipy，但是scipy用pip3安装始终有问题，解决方案：
+sudo apt-get install python3-numpy python3-scipy python3-matplotlib
+--- 
+pip3 安装skimage也会出现安装不了问题，解决：sudo easy_install scikit-image
+---
+pip/pip3国内源：
+新版ubuntu要求使用https源，要注意。
+清华：https://pypi.tuna.tsinghua.edu.cn/simple
+阿里云：http://mirrors.aliyun.com/pypi/simple/
+中国科技大学 https://pypi.mirrors.ustc.edu.cn/simple/
+华中理工大学：http://pypi.hustunique.com/
+山东理工大学：http://pypi.sdutlinux.org/ 
+豆瓣：http://pypi.douban.com/simple/
+临时使用：
+可以在使用pip的时候加参数-i https://pypi.tuna.tsinghua.edu.cn/simple
+--
 
 
 # [Channel Pruning for Accelerating Very Deep Neural Networks](https://arxiv.org/abs/1707.06168)
