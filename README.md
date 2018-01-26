@@ -1,3 +1,15 @@
+#配置的时候，如果是ubuntu14,里面会有python3.4。这里的caffe必须用python3来make && make py. 在makefile.config里面需要设置python3.4的路径：
+
+---
+PYTHON_LIBRARIES := boost_python3 python3.4m
+PYTHON_INCLUDE := /usr/include/python3.4m \
+                 /usr/lib/python3/dist-packages/numpy/core/include
+---
+#但是可能发现没有相关哦路径，这个时候，sudo apt-get install python3-pip 就会生成相关的路径，接下来，安装哦一切包都用pip3来装
+
+
+
+
 # [Channel Pruning for Accelerating Very Deep Neural Networks](https://arxiv.org/abs/1707.06168)
 **ICCV 2017**, by [Yihui He](http://yihui-he.github.io/), [Xiangyu Zhang](https://scholar.google.com/citations?user=yuB-cfoAAAAJ&hl=en&oi=ao) and [Jian Sun](http://jiansun.org/)
 
