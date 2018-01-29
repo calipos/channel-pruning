@@ -5,13 +5,14 @@ PYTHON_LIBRARIES := boost_python3 python3.4m
 PYTHON_INCLUDE := /usr/include/python3.4m \
                  /usr/lib/python3/dist-packages/numpy/core/include
 ---
+# [在配置caffe环境前面，应该吧所有的protobuf都省略，在最开始自己安装最新的protobuf，如果不是最新的protoc，后面便宜的pycaffe始终运行不起，具体安装方式就是clone github上的protobuf，按上面的命令来安装这个库]
+
 # [但是可能发现没有相关哦路径，这个时候，sudo apt-get install python3-pip 就会生成相关的路径，接下来，安装哦一切包都用pip3来装]
+用pip3之前也应该pip3 install --upgrade pip来升级pip3命令
+用pip3的时候，可以在命令后面加  -i https:// 的国内源，来加快下载速度.(注意，现在国内源都是https！)
 
 ---
-其中sklearn的安装需要scipy，但是scipy用pip3安装始终有问题，解决方案：
-sudo apt-get install python3-numpy python3-scipy python3-matplotlib
---- 
-pip3 安装skimage也会出现安装不了问题，解决：sudo easy_install scikit-image
+有可能会提示没有tkinter的东西 ： 安装 ：  sudo apt-get install python3-tk
 ---
 pip/pip3国内源：
 新版ubuntu要求使用https源，要注意。
