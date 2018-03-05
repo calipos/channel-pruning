@@ -45,6 +45,8 @@ class kernels:
 
 class Net():
     def __init__(self, pt, model=None, phase = caffe.TEST, noTF=1, accname=None, gt_pt=None, gt_model=None):
+        redprint(pt)
+        redprint(model)
         imagenetlsit=['imagenet', 'vgg_train_val']
         for i in imagenetlsit:
             if pt.find(i) != -1 :
@@ -59,7 +61,9 @@ class Net():
         else:
             # caffe.set_mode_cpu()
             print("using CPU caffe")
+        redprint("load new pt : %s"%pt)
         self.net = caffe.Net(pt, phase)#, level=2) # creates net but not load weights -by Mario
+        
         self.pt_dir = pt
         if model is not None:
             self.net.copy_from(model)
@@ -80,7 +84,8 @@ class Net():
         self._accname = cfgs.accname
         if self._accname is None:
             self._accname = 'accuracy@5'
-
+        print ("\tkernels.dic : ",kernels.dic)  #this =dic
+        print ("\tdcfgs.kernelname : ",dcfgs.kernelname)  #this =dic
         if dcfgs.kernelname == kernels.dic:
             # prefix=str(int(100*dcfgs.dic.keep))
             if dcfgs.dic.afterconv:
@@ -89,6 +94,7 @@ class Net():
                 self.kernel = self.dictionary_kernel
         else:
             self.kernel = self.pruning_kernel
+            print ("self.kernel = self.pruning_kernel")
 
         self.acc=[]
         self._protocol = 4 # None
@@ -118,7 +124,13 @@ class Net():
         self.pools = self.type2names(layer_type='Pooling')
         self.sums = self.type2names('Eltwise')
         self.innerproduct = self.type2names('InnerProduct')
-
+        #print ("\tconvs : ",self.convs)
+        #print ("\trelus : ",self.relus)
+        #print ("\tbns : ",self.bns)
+        #print ("\taffines : ",self.affines)
+        #print ("\tpools : ",self.pools)
+        #print ("\tsums : ",self.sums)
+        #print ("\tinnerproduct : ",self.innerproduct)
     def tf_device(self):
         os.environ['CUDA_VISIBLE_DEVICES'] = cfgs.tf_vis
 
@@ -160,11 +172,13 @@ class Net():
 
     def save_pt(self, new_name=None, **kwargs):
         new_name = self._save(new_name, self.pt_dir, **kwargs)
+        print("\tsave_pt : new_name : ",new_name)
         self.net_param.write(new_name)
         return new_name
 
     def save_caffemodel(self, new_name=None, **kwargs):
         new_name = self._save(new_name, self.caffemodel_dir, **kwargs)
+        print("\tsave_caffemodel : new_name : ",new_name)
         self.net.save(new_name)
         return new_name
 
@@ -185,9 +199,11 @@ class Net():
 
     def forward(self, gt=False):
         if gt:
+            print("shouldnt here")
             return self.gt_net.forward()
         if dcfgs.data == cfgs.Data.pro: # The forward pass can use another data format, not lmdb. For what? -by Mario
-            # print("use datapro")
+            print("shouldnt here")
+            print("\t\tin def forward(self, gt=False):")
             self.dp.forward(True)
             imgs = self.dp["image"][0][0].clone_data("nchw")
             n_imgs = imgs.shape[0]
@@ -196,6 +212,7 @@ class Net():
 
         ret = self.net.forward()
         self.cum_acc(ret)
+        print("self.acc : ",self.acc)
         return ret
 
     def param_w(self, name):
@@ -368,11 +385,12 @@ class Net():
     def extract_features(self, names=[], nBatches=None, points_dict=None, save=False):
         assert nBatches is None, "deprecate"
         nBatches = dcfgs.nBatches
-        nPointsPerLayer=dcfgs.nPointsPerLayer
+        nPointsPerLayer=dcfgs.nPointsPerLayer  ###???
         if not isinstance(names, list):
             names = [names]
         inner = False
         if len(names)==1: # if we pass only 1 name, then we are operating on FC layers? -by Mario
+            print("len(names)==1")
             for top in self.innerproduct:
                 if names[0] in self.bottom_names[top]:
                     inner = True
@@ -390,80 +408,105 @@ class Net():
         dcfgs.data = cfgs.Data.lmdb  # I think this disables the use of Data.pro type of data -by Mario
         if save:
             if points_dict is None:
+                print("points_dict is None")
                 frozen_points = False
                 points_dict = dict()
-                if 0 and self._mem: self.usexyz()
+                if 0 and self._mem: 
+                    print("hehehe",self.dp)
+                    self.usexyz()
 
                 set_points_dict("nPointsPerLayer", nPointsPerLayer)
                 set_points_dict("nBatches", nBatches)
             else:
+                print("points_dict not None")
                 frozen_points = True
                 if nPointsPerLayer != points_dict["nPointsPerLayer"] or nBatches != points_dict["nBatches"]:
                     print("overwriting nPointsPerLayer, nBatches with frozen_points")
 
                 nPointsPerLayer = points_dict["nPointsPerLayer"]
                 nBatches = points_dict["nBatches"]
-
+        #print("points_dict : ",points_dict)
         assert len(names) > 0
 
         nPicsPerBatch = self.blobs_num(names[0])
+        print ("names[0] : ",names[0])
+        print ("nPicsPerBatch : ",nPicsPerBatch)
+        print ("nPointsPerLayer : ",nPointsPerLayer)
         nFeatsPerBatch = nPointsPerLayer  * nPicsPerBatch
         print("run for", dcfgs.nBatches, "batches", "nFeatsPerBatch", nFeatsPerBatch)
         nFeats = nFeatsPerBatch * nBatches
-
         for name in names:
 
             """avoiding X out of bound"""
+            print ("\tthis name is ",name,".    height = ",self.blobs_height(name),". width = ",self.blobs_width(name))
             shapes[name] = (self.blobs_height(name), self.blobs_width(name))
 
             if inner or len(self.blobs_shape(name))==2 or ( shapes[name][0] == 1 and shapes[name][1] == 1):
+                print("if inner or len(self.blobs_shape(name))==2 or ( shapes[name][0] == 1 and shapes[name][1] == 1):")
                 if 0: print(name)
                 chs = self.blobs_channels(name)
                 if len(self.blobs_shape(name)) == 4:
                     chs*=shapes[name][0]*shapes[name][1]
                 feats_dict[name] = np.ndarray(shape=(nPicsPerBatch * dcfgs.nBatches_fc,chs )) # This dict holds an entry for each conv layer Each dictionary entry will have 5000 rows,
             else:                                                                             #  each holding 1 point per layers channel (e.g. conv1_1 has 64 channels, then the shape of
+                print ("\tthis name is ",name,".    shape = (",nFeats,", ",self.blobs_channels(name))                
                 feats_dict[name] = np.ndarray(shape=(nFeats, self.blobs_channels(name)))      # feat_dict is (5000,64)
             print("Extracting", name, feats_dict[name].shape) # for a standard run,  names is a list with the conv layers: name = convs -by Mario
         idx = 0
         fc_idx = 0
         if save:
             if not frozen_points:
+                print ("if not frozen_points: [",frozen_points)
                 set_points_dict("data", self.data().shape)
                 set_points_dict("label", self.label().shape)
 
 
         runforn = dcfgs.nBatches_fc if dcfgs.dic.fitfc else dcfgs.nBatches
+        print ("runforn = ",runforn)
+
+        
         for batch in range(runforn):
             if save:
                 if not frozen_points:
+                    print("frozen_points : ",frozen_points)
                     self.forward()
+                    print("has forwarded")
                     set_points_dict((batch, 0), self.data().copy())
                     set_points_dict((batch, 1), self.label().copy())
-
                 else:
+                    print("shouldnt here")
                     self.net.set_input_arrays(points_dict[(batch, 0)], points_dict[(batch, 1)])
                     self.forward()
+                    redprint("has forwarded(with new pt & model)")
             else:
+                print("shouldnt here")
                 self.forward()
 
             for name in names:
                 # pad = pads[name]
                 shape = shapes[name]
                 feat = self.blobs_data(name)
-                if 0: print(name, self.blobs_shape(name))
+                print("\t* ",name," | shape = ",shapes[name]," | feat.size = ",feat.shape," | self.blobs_shape=", self.blobs_shape(name))
+
                 if inner or len(self.blobs_shape(name))==2 or (shape[0] == 1 and shape[1] == 1):
+                    print("\t\tif inner or len(self.blobs_shape(name))==2 or (shape[0] == 1 and shape[1] == 1):")
                     feats_dict[name][fc_idx:(fc_idx + nPicsPerBatch)] = feat.reshape((self.num, -1))
                     continue
                 if batch >= dcfgs.nBatches and name in self.convs:
                     continue
                 # TODO!!! different patch for different image per batch
                 if save:
+                    print("\tfrozen_points : ",frozen_points)
                     if not frozen_points or (batch, name, "randx") not in points_dict:
                         #embed()
                         randx = np.random.randint(0, shape[0]-0, nPointsPerLayer)
                         randy = np.random.randint(0, shape[1]-0, nPointsPerLayer)
+                        #print("shape[0]-0 : ",shape[0]-0)
+                        #print("shape[0]-0 : ",shape[0]-0)
+                        #print("randx : ",randx)
+                        #print("randy : ",randy)
                         if dcfgs.dic.option == cfgs.pruning_options.resnet:
+                            print("shouldnt be here")
                             branchrandxy = None
                             branch1name = '_branch1'
                             branch2cname = '_branch2c'
@@ -484,8 +527,8 @@ class Net():
                                 if 0: print('pointsdict of', branchrandxy, 'identical with', name)
                                 randx = points_dict[(batch, branchrandxy , "randx")]
                                 randy = points_dict[(batch, branchrandxy , "randy")]
-
                         if name.endswith('_conv1') and dcfgs.dic.option == 1:
+                            print("shouldnt be here")
                             if DEBUG: redprint("this line executed becase dcfgs.dic.option is 1 [net.extract_features()]")
                             fsums = ['first_conv'] + self.sums
                             blockname = name.partition('_conv1')[0]
@@ -500,22 +543,33 @@ class Net():
                         set_points_dict((batch, name, "randy"), randy.copy())
 
                     else:
+                        redprint("the randx & randy is already exist, so used the same ones.")
                         randx = points_dict[(batch, name, "randx")]
                         randy = points_dict[(batch, name, "randy")]
                 else:
+                    print("shouldnt be here")
                     randx = np.random.randint(0, shape[0]-0, nPointsPerLayer)
                     randy = np.random.randint(0, shape[1]-0, nPointsPerLayer)
 
-                for point, x, y in zip(range(nPointsPerLayer), randx, randy):
 
+                for point, x, y in zip(range(nPointsPerLayer), randx, randy):
                     i_from = idx+point*nPicsPerBatch
                     try:
+                        #print("\tidx : ",idx)
+                        #print("\tpoint : ",point)
+                        #print("\tnPicsPerBatch : ",nPicsPerBatch)
+                        #print("\ti_from : ",i_from)
+                        #print("\tself.num : ",self.num)
+                        #print("feat = self.blobs_data(",name,")")
+                        #print("feat[:,:,",x,",", y,"] : ",feat[:,:,x, y])
                         feats_dict[name][i_from:(i_from + nPicsPerBatch)] = feat[:,:,x, y].reshape((self.num, -1))
+                        #print("feats_dict[",name,"] : ",feats_dict[name].shape)
                     except:
+                         print("an except has catched !!!")
+                         exit(0)
                          print('total', runforn, 'batch', batch, 'from', i_from, 'to', i_from + nPicsPerBatch)
                          raise Exception("out of bound")
-                if DEBUG:
-                    embed()
+                if DEBUG:embed()
             idx += nFeatsPerBatch
             fc_idx += nPicsPerBatch
 
@@ -523,12 +577,14 @@ class Net():
         self.clr_acc()
         if save:
             if frozen_points:
+                print("\tshould be here")
                 if points_dict is not None:
                     return feats_dict, points_dict
                 return feats_dict
             else:
                 return feats_dict, points_dict
         else:
+            print("\tshould be here")
             return feats_dict
 
     def extract_XY(self, X, Y, DEBUG = False, w1=None):
@@ -539,10 +595,12 @@ class Net():
         Return:
             X feats of size: N C h w
         """
+
         pad = self.conv_param_pad(Y)
         kernel_size = self.conv_param_kernel_size(Y)
         half_kernel_size = int(kernel_size/2)
         if w1 is not None:
+            redprint("shouldnt be here")
             gw1=True
             x_pad = self.conv_param_pad(w1)
             x_ks = self.conv_param_kernel_size(w1)
@@ -555,11 +613,11 @@ class Net():
         print("Extracting X", X, "From Y", Y, 'stride', stride)
 
 
-
         X_h = self.blobs_height(X)
         X_w = self.blobs_width(X)
         Y_h = self.blobs_height(Y)
         Y_w = self.blobs_width(Y)
+
 
         def top2bottom(x, padded=1):
             """
@@ -600,6 +658,7 @@ class Net():
         nPointsPerLayer = self._points_dict["nPointsPerLayer"]
         nBatches = self._points_dict["nBatches"]
         if gw1:
+            redprint("shouldnt be here")
             nPicsPerBatch = self.blobs_num(X)
             nFeatsPerBatch = nPointsPerLayer  * nPicsPerBatch
             nFeats = nFeatsPerBatch * nBatches
@@ -614,10 +673,18 @@ class Net():
             nFeats = nFeatsPerBatch * nBatches
 
             feats_dict = np.ndarray(shape=(nFeats, self.blobs_channels(X)))
+            #print("self.blobs_num(X) = ",self.blobs_num(X))
+            #print("kernel_size = ",kernel_size)
+            #print("nPicsPerBatch = ",nPicsPerBatch)
+            #print("nPointsPerLayer = ",nPointsPerLayer)
+            #print("nFeatsPerBatch = ",nFeatsPerBatch)
+            #print("nBatches = ",nBatches)
+            #print("nFeats = ",nFeats)
         X_shape = self.blobs_shape(X)
-
+        
         feat_pad = pad if not gw1 else pad + x_pad
         if not self._mem:
+            redprint("shouldnt be here")
             redprint("XY not corresponded")
         for batch in range(nBatches):
             if 0: print("done", batch, '/', nBatches)
@@ -627,21 +694,28 @@ class Net():
             self.forward()
 
             # padding
-
+            #self._feats_dict
             feat = np.zeros((X_shape[0], X_shape[1], X_shape[2] + 2 * feat_pad, X_shape[3] + 2 * feat_pad), dtype=self.blobs_type(X))
             feat[:, :, feat_pad:X_shape[2] + feat_pad, feat_pad:X_shape[3] + feat_pad] = self.blobs_data(X).copy()
-
+            print("X_shape : ",X_shape)
+            print("feat.shape : ",feat.shape)
+            #print(self.blobs_data(X))
+            #print(feat)
             randx = self._points_dict[(batch, Y, "randx")]
             randy = self._points_dict[(batch, Y, "randy")]
 
             for point, x, y in zip(range(nPointsPerLayer), randx, randy):
 
                 i_from = idx+point*nPicsPerBatch
-                """n hwc"""
+                #"""n hwc"""
 
                 x_start, x_end = y2x(x)
                 y_start, y_end = y2x(y)
+                #redprint("point = %d\nx = %d\ny = %d"%(point, x, y))
+                #redprint("x_start = %d\nx_end = %d\ny_start = %d\ny_end = %d"%(x_start, x_end, y_start,y_end))
+                
                 if gw1:
+                    redpoint("shouldnt be here")
                     if 0:
                         try:
                             feats_dict[i_from:(i_from + nPicsPerBatch)] = \
@@ -653,8 +727,7 @@ class Net():
                         feat[:, :, x_start:x_end, y_start:y_end].copy()
 
                 else:
-                    feats_dict[i_from:(i_from + nPicsPerBatch)] = \
-                    np.moveaxis(feat[:, :, x_start:x_end, y_start:y_end], 1, -1).reshape((nPicsPerBatch, -1))
+                    feats_dict[i_from:(i_from + nPicsPerBatch)] = np.moveaxis(feat[:, :, x_start:x_end, y_start:y_end], 1, -1).reshape((nPicsPerBatch, -1))
 
             if DEBUG:
                 # sanity check using relu(WX + B) = Y
@@ -679,12 +752,10 @@ class Net():
                 CHECK_EQ(fake, real)
 
             idx += nFeatsPerBatch
-
         self.clr_acc()
         return feats_dict
 
     def extract_layers(self, names=[], nBatches=30, points_dict=None, gt=False):
-
         if not isinstance(names, list):
             names = [names]
 
@@ -747,7 +818,9 @@ class Net():
 
 
     def freeze_images(self, check_exist=False, convs=None, **kwargs):
+
         if cfgs.layer: # flag for pruning single layer -by Mario
+            redprint("\tif cfgs.layer : [%s"%cfgs.layer)
             frozen = self._frozen_layer # code for def _frozen_layer() -using @property- is not difined -by Mario
             if check_exist: # THIS CODE WAS NOT IMPLEMENTED YET - by Mario
                 pass
@@ -755,24 +828,35 @@ class Net():
                 pass
         else:
             frozen = self._frozen
+            redprint("\tcfgs.layer = %s"%cfgs.layer)
+            redprint("\tfrozen = %s"%frozen)
             if check_exist:
                 if osp.exists(frozen):
                     print("Exists", frozen)
                     return frozen
 
         if convs is None:
+            print("not entry here")
             convs = self.type2names()
         if cfgs.layer:
+            print("shouldnt here")
             feats_dict, points_dict = self.extract_layers(names=convs, **kwargs)
         else:
             feats_dict, points_dict = self.extract_features(names=convs, save=1, **kwargs)
-
         data_layer = self.data_layer
-        if len(self.net_param_layer(data_layer)) == 2:
-            self.net_param.net.layer.remove(self.get_layer(data_layer))
+
+        if len(self.net_param_layer(data_layer)) == 2:  # it contains 'train' and 'test'
+            #print("self.net_param_layer('data') : ",self.net_param_layer('data'))
+            #print("self.net_param_layer('conv4_3') : ",self.net_param_layer('conv4_3'))
+            
+            #print(self.net_param.net) #the whole net
+            #print(self.get_layer(data_layer)) 
+            #print("*******************")
+            self.net_param.net.layer.remove(self.get_layer(data_layer)) # cut the 'test'Data
+            #this 'if' is mainly at remove the first data.
 
         # we will prepare the data layer to run with MemoryData type
-        i = self.get_layer(data_layer)
+        i = self.get_layer(data_layer)   #i is the remains data
         i.type = "MemoryData"
         i.memory_data_param.batch_size = points_dict['data'][0]
         i.memory_data_param.channels = points_dict['data'][1]
@@ -781,10 +865,11 @@ class Net():
         i.ClearField("transform_param")
         i.ClearField("data_param")
         i.ClearField("include")
+        print("wrote memory data layer to %s"%self.save_pt(prefix="mem"))
+        print("freezing imgs to %s"%frozen)
 
-        print("wrote memory data layer to", self.save_pt(prefix="mem"))
-        print("freezing imgs to", frozen)
         if cfgs.layer:
+            redprint("shouldnt be here")
             def subfile(filename):
                 return osp.join(frozen, filename)
             with open(subfile(self._points_dict_name), 'wb') as f:
@@ -796,9 +881,14 @@ class Net():
                     pickle.dump(feats_dict[conv], f, protocol=self._protocol)
 
         else:
+            redprint("feats_dict:")
+            #for key in feats_dict.keys():
+            #    print (key," : ",feats_dict[key].shape)
+            redprint("points_dict:")
+            #for key in points_dict.keys():
+            #    print (key," : ",points_dict[key])
             with open(frozen, 'wb') as f:
                 pickle.dump([feats_dict, points_dict], f, protocol=self._protocol)
-
         return frozen
 
     def dis_memory(self):
@@ -837,6 +927,7 @@ class Net():
                         self.net_param.ch_bottom(i, conv, r)
 
     def load_frozen(self, DEBUG=False, feats_dict=None, points_dict=None):
+        redprint("[in load_frozen]")
         if feats_dict is not None:
             print("loading imgs from memory")
             self._feats_dict = feats_dict
@@ -859,7 +950,7 @@ class Net():
                         self._feats_dict[conv] = pickle.load(f)
         else:
             frozen = self._frozen
-            print("loading imgs from", frozen)
+            print("_loading imgs from", frozen)
             with open(frozen, 'rb') as f:
                 self._feats_dict, self._points_dict = pickle.load(f)
 
@@ -883,6 +974,7 @@ class Net():
 
     def insert(self, bottom, name=None, layer_type="Convolution", bringforward=True, update_nodes=None, bringto=None, **kwargs):
         self.net_param.set_cur(bottom)
+        
         if layer_type=="Convolution":
             # insert
             self.net_param.Convolution(name, bottom=[bottom], **kwargs)
@@ -919,8 +1011,6 @@ class Net():
             self.net_param.bringforward(bottom)
             #self.net_param.bringforward(bottom)
             return bnname, sname
-
-
 
 
     def remove(self, name, inplace=False):
@@ -960,7 +1050,11 @@ class Net():
 
     def finalmodel(self, WPQ=None, **kwargs): # the prefix for the name of the saved model is added by self.linear() -by Mario
         """ load weights into caffemodel"""
+        #print("\tWPQ = ",WPQ)
+        print("\tload weights into caffemodel")
+
         if WPQ is None:
+            #print("\tWPQ is none and WPQ = self.WPQ = ",self.WPQ)
             WPQ = self.WPQ
         return self.linear(WPQ, **kwargs)
 
@@ -989,7 +1083,9 @@ class Net():
     # =========algorithms=========
 
     def linear(self, WPQ, prefix='VH', save=True,DEBUG=0):
+        print("\tWPQ.keys() : ",WPQ.keys())
         for i, j in WPQ.items():
+            print("\t\tfor i, j in WPQ.items():")
             if save:
                 self.set_param_data(i, j)
             else:
@@ -1125,9 +1221,15 @@ class Net():
         ReLUs = self.type2names("ReLU")
         Convs = self.type2names()
         assert len(BNs) == len(Affines)
+        #print("BNs : ",BNs)
+        #print("Affines : ",Affines)
+        #print("ReLUs : ",ReLUs)
+        #print("Convs : ",Convs)
+        #print("len(BNs) : ",len(BNs))
 
         WPQ = dict()
         for affine in Affines:
+            print ("\tfor affine in Affines:")
             if self.bottom_names[affine][0] in BNs:
                 # non inplace BN
                 noninplace = True
@@ -1187,6 +1289,7 @@ class Net():
                             self.net_param.ch_bottom(i, r, conv)
 
         if cfgs.mp:
+            print("\tif cfgs.mp:")
             if not nobias:
                 new_pt = self.save_pt(prefix = 'bn')
                 return WPQ, new_pt
@@ -1195,6 +1298,7 @@ class Net():
                 return WPQ, new_pt, new_model
 
         new_pt, new_model = self.save(prefix='bn')
+        print ("\tWPQ : ",WPQ)
         return WPQ, new_pt, new_model
 
     def invBN(self, arr, Y_name):
@@ -1227,6 +1331,7 @@ class Net():
 
     def seperateConvReLU(self, DEBUG=0):
         if dcfgs.model in [cfgs.Models.resnet, cfgs.Models.xception] and len(self.bns) > 1 and len(self.affines) > 1 and dcfgs.res.bn:
+            print("\tif dcfgs.model in [cfgs.Models.resnet, cfgs.Models.xception] and len(self.bns) > 1 and len(self.affines) > 1 and dcfgs.res.bn:")
             for b,a in zip(self.bns, self.affines):
                 if self.top_names[b][0] != b:
                     conv = self.bottom_names[b][0]
@@ -1242,9 +1347,11 @@ class Net():
                         if i != b:
                             self.net_param.ch_bottom(i, b, conv)
         else:
+            print ("\tself.top_names : ",self.top_names)
+            print ("\tself.bottom_names : ",self.bottom_names)
             for r in self.relus:
                 if self.top_names[r][0] != r:
-                    conv = self.bottom_names[r][0]
+                    conv = self.bottom_names[r][0]   #the conv is the r's bottom
                     if conv not in self.convs:
                         continue
                     self.net_param.ch_top(r, r, conv)
@@ -1253,6 +1360,7 @@ class Net():
                             self.net_param.ch_bottom(i, r, conv)
 
         new_pt = self.save_pt(prefix = 'bn')
+        print ("\tnew_pt( ch bootom&top ) : ",new_pt)
         return new_pt
 
     def inlineConvBN(self):
@@ -1283,19 +1391,22 @@ class Net():
         projs = {}
         WPQ, pt, model = {}, None, self.caffemodel_dir
         if dcfgs.model not in [cfgs.Models.xception, cfgs.Models.resnet] or not dcfgs.res.bn:
+            print ("\tentey this branch : WPQ, pt, model = self.merge_bn()")
             WPQ, pt, model = self.merge_bn()
-
         if dcfgs.splitconvrelu:
+            print ("\t dcfgs.splitconvrelu:")
             pt = self.seperateConvReLU()
         return WPQ, pt, model
 
     def R3(self): # TODO: Delete VH and ITQ from R3 to eliminate spatial and channel factorization (tried but failed ㅜㅜ) -by Mario
         speed_ratio = dcfgs.dic.keep
         if speed_ratio not in [3.]: # this if-statement might give a problem if we change the speed-up target. Consider adding more values to the list -by Mario
+            redprint("shouldnt be here")
             NotImplementedError
         if dcfgs.dic.vh: # TODO: Consider changing this prefixes to obtained more descriptive names for prototxt files - by Mario
             prefix = '3C'
         else:
+            redprint("shouldnt be here")
             prefix = '2C'
         prefix += str(int(speed_ratio)+1)+'x'
         DEBUG = True
@@ -1319,15 +1430,22 @@ class Net():
                    'conv5_1': 398,
                    'conv5_2': 390,
                    'conv5_3': 379}
-
+        #redprint (alldic)
+        #redprint (pooldic)
+        redprint (rankdic)
         for i in rankdic:
             if 'conv5' in i:
                 continue # the break-statemet was giving a bug, so changed it to continue-statement -by Mario
             rankdic[i] = int(rankdic[i] * 4. / speed_ratio)
+        redprint (rankdic)
         c_ratio = 1.15
-
         def getX(name):
+            #print("self.bottom_names[",name,"]",self.bottom_names[name])
+            #print("self.bottom_names[",name,"][0]",self.bottom_names[name][0])
+            print("getX(",name,"]")
+            
             x = self.extract_XY(self.bottom_names[name][0], name)
+            print("self.extract_XY.return = ",x.shape)
             return np.rollaxis(x.reshape((-1, 3, 3, x.shape[1])), 3, 1).copy()
 
         def setConv(c, d):
@@ -1338,59 +1456,108 @@ class Net():
 
         t = Timer()
 
-        for conv, convnext in zip(convs[1:], convs[2:]+['pool5']): # note that we exclude the first conv, conv1_1 contributes little computation -by Mario
+        for conv, convnext in zip(convs[1:], convs[2:]+['pool1']): # note that we exclude the first conv, conv1_1 contributes little computation -by Mario
+            print("**********************the conv= ",conv,"the convnext= ",convnext,"**********")
             conv_V = underline(conv, 'V')                          # TODO: Consider getting read of this V,H string builders, but keep in mind that
             conv_H = underline(conv, 'H')                          # there is dependency between "channel decomposition" and "channel pruning" -by Mario
             conv_P = underline(conv, 'P')
+            #there, the conv is the former conver
             W_shape = self.param_shape(conv)
+            
+            print(conv," W_shape : ", W_shape)
             d_c = int(W_shape[0] / c_ratio)
             rank = rankdic[conv]
             d_prime = rank
             if d_c < rank: d_c = rank
-            '''spatial decomposition'''
+            #'''spatial decomposition>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'''
             if True:
                 t.tic()
                 weights = self.param_data(conv)
+                print("weights.shape = ",weights.shape)
+                #print("weights = ",weights)
+                print("self.selection = ",self.selection)
                 if conv in self.selection:
                     weights = weights[:,self.selection[conv],:,:]
-                if 1:
-                    Y = self._feats_dict[conv] - self.param_b_data(conv)
-                    X = getX(conv)
-                    if conv in self.selection:
-                        X = X[:,self.selection[conv],:,:]
-                    V, H, VHr, b = VH_decompose(weights, rank=rank, DEBUG=DEBUG, X=X, Y=Y)
-                    self.set_param_b(conv,b)
-                else:
-                    V, H, VHr = VH_decompose(weights, rank=rank, DEBUG=DEBUG)
+                print("weights.shape = ",weights.shape)
+                print("the conv = ",conv)
+                print("self._feats_dict[",conv,"].shape = ",self._feats_dict[conv].shape)
+                
+                Y = self._feats_dict[conv] - self.param_b_data(conv)
+                X = getX(conv)
+                redprint("Y = self._feats_dict[%s]-self.param_b_data(%s)"%(conv,conv))
+                redprint("X = getX(%s)"%(conv))
+                print("X.shape = ",X.shape)
+                #print("X = ",X)
+                print("Y.shape = ",Y.shape)
+                #print("Y = ",Y)
 
+                #test_x=np.array(X[0,:].reshape(-1))
+                #print("test_x.shape = ",test_x.shape)
+                #weight_0=np.array(weights[0,:,:,:].reshape(-1))
+                #print("weight_0.shape = ",weight_0.shape)
+                #print(np.dot(test_x,weight_0))
 
+                if conv in self.selection:
+                    redprint("self.selection is not None !!!")
+                    X = X[:,self.selection[conv],:,:]
+                V, H, VHr, b = VH_decompose(weights, rank=rank, DEBUG=DEBUG, X=X, Y=Y)
+                print("[after VH_decompose]  V.shape = ",V.shape)
+                print("[after VH_decompose]  H.shape = ",H.shape)
+                print("[after VH_decompose]  VHr.shape = ",VHr.shape)
+                print("[after VH_decompose]  b.shape = ",b.shape)
+
+                print("[after VH_decompose]  b = \n\t",b[:6],"...")
+                print("[after VH_decompose]  original b = \n\t",self.param_b_data(conv)[:6],"...")
+                self.set_param_b(conv,b)
+                redprint("%s has set new b."%conv)
+                print("[after VH_decompose]  new b = \n\t",self.param_b_data(conv)[:6],"...\n~~~~~~~~~~")                
                 self.WPQ[conv_V] = V
 
                 # set W to low rank W, asymetric solver
+                print("[after VH_decompose]  VHr = \n\t",VHr[0,0,0,:],"...")
+                print("[after VH_decompose]  original weight = \n\t",self.param_data(conv)[0,0,0,:],"...")
                 setConv(conv,VHr)
-
+                redprint("%s has set new weight,namely VHr."%conv)
+                print("[after VH_decompose]  new weight = \n\t",self.param_data(conv)[0,0,0,:],"...\n~~~~~~~~~~")
                 self.WPQ[(conv_H, 0)] = H
                 self.WPQ[(conv_H, 1)] = self.param_b_data(conv)
+
                 if 0:#DEBUG:
                     print("W", W_shape)
                     print("V", V.shape)
                     print("H", H.shape)
 
                 t.toc('spatial_decomposition')
-
-            self.insert(conv, conv_H)
-
-            '''channel decomposition'''
+            self.save_pt("temp/originalPt")
+            self.insert(conv, conv_H)            
+            redprint("conv_H has been inserted in pt")
+            self.save_pt("temp/interConvH")
+            
+            #'''channel decomposition>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'''
             if True:# and conv != 'conv3_3':
                 t.tic()
                 feats_dict, _ = self.extract_features(names=conv, points_dict=self._points_dict, save=1)
+                redprint("feats_dict,_= self.extract_features(%s),there get the feature of %s, and the self._feats_dict[%s] is the original feature od the layer.(the layer has bias term and it's new b )"%(conv,conv,conv))
                 Y = feats_dict[conv]
+                print(Y.shape)
+                print(self._feats_dict[conv].shape)
+                redprint("W1, W2, B, W12 = ITQ_decompose(Y,gtY,H,b) : H & b is computed before, the former process could get the V H and b. In this process, get a newM&newB, let relu(newMY+newB)→relu(gtY), next L,R=svd(newM),let H*L, finally, we'll get W1, W2, B, W12")
                 W1, W2, B, W12 = ITQ_decompose(Y, self._feats_dict[conv], H, d_prime, bias=self.param_b_data(conv), DEBUG=0, Wr=VHr)
-
                 # set W to low rank W, asymetric solver
+                print("[after ITQ_decompose]  W12 = \n\t",W12[0,0,0,:],"...")
+                print("[after ITQ_decompose]  ",conv," weight = \n\t",self.param_data(conv)[0,0,0,:],"...")
                 setConv(conv,W12.copy())
+                redprint("%s has set new weight,namely W12."%conv)
+                print("[after ITQ_decompose]  new ",conv," weight = \n\t",self.param_data(conv)[0,0,0,:],"...\n~~~~~~~~~~")
+                
+                print("[after ITQ_decompose]  B = \n\t",B[:6],"...")
+                print("[after ITQ_decompose]  ",conv," bias = \n\t",self.param_b_data(conv)[:6],"...")
                 self.set_param_b(conv, B.copy())
+                redprint("%s has set new bias,namely B."%conv)
+                print("[after ITQ_decompose]  new ",conv," bias = \n\t",self.param_b_data(conv)[:6],"...\n~~~~~~~~~~")
 
+                redprint("[after ITQ_decompose] ")
+                print("W1.shape= ",W1.shape,"\tW2.shape= ",W2.shape,"\tB.shape= ",B.shape,"\tW12.shape= ",W12.shape, )
                 # save W_prime and P params
                 W_prime_shape = [d_prime, H.shape[1], H.shape[2], H.shape[3]]
                 P_shape = [W2.shape[0], W2.shape[1], 1, 1]
@@ -1398,14 +1565,23 @@ class Net():
                 self.WPQ[(conv_H, 1)] = np.zeros(d_prime)
                 self.WPQ[(conv_P, 0)] = W2.reshape(P_shape)
                 self.WPQ[(conv_P, 1)] = B
-
                 self.insert(conv_H, conv_P, pad=0, kernel_size=1, bias=True, stride=1)
-
+                redprint("conv_H&conv_P has been inserted in pt")
+                self.save_pt("temp/interConvH&ConvP")
+                redprint("until now, the WPQ:\n conv has bias(VHLR,B), V\n conv_H no bias(W1)\n conv_P has bias(W2 & b)")
                 t.toc('channel_decomposition')
 
-            '''channel pruning'''
+            #print ("dcfgs.dic.vh = ",dcfgs.dic.vh)
+            #print ("conv = ",conv)
+            #print ("alldic = ",alldic)
+            #print ("pooldic = ",pooldic)
+            #print ("convnext = ",convnext)
+            #print ("self.convs = ",self.convs)
+
+            #'''channel pruning>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'''
             if dcfgs.dic.vh and (conv in alldic or conv in pooldic) and (convnext in self.convs):
                 t.tic()
+
                 #if conv.startswith('conv4'): #what is this -by Mario
                 #    c_ratio = 1.5
                 if conv in pooldic:
@@ -1437,10 +1613,15 @@ class Net():
                   the lasso regression execution
                   -by Mario
                 """
+                print("X_name : ",X_name) #:X_name=pool1
+                print("convnext : ",convnext) #:convnext=conv2_1
+                print("d_c : ",d_c) #:d_c=55
+
 
                 #idxs, array of booleans that indicates which feature maps(?) are elimated
                 # newX: N c h w (BatchSize, channels, h, w), W2: n c h w (out_channels, in_channels, fitler_h, filter_w)
                 idxs, W2, B2 = self.dictionary_kernel(X_name, None, d_c, convnext, None)
+                redprint("X_name=%s,convnext=%s; the weight of %s will be extracted and losso regression"%(X_name,convnext,convnext))
                 # W2
                 self.selection[convnext] = idxs
                 self.param_data(convnext)[:, ~idxs, ...] = 0
@@ -1455,8 +1636,9 @@ class Net():
                 self.WPQ[(key,0)] = self.WPQ[(key,0)][idxs]
                 self.WPQ[(key,1)] = self.WPQ[(key,1)][idxs]
                 self.set_conv(key, num_output=sum(idxs))
-
+                self.save_pt("temp/channelPruned")
                 t.toc('channel_pruning')
+
             # setup V
             H_params = {'bias':True}
             H_params.update(self.infer_pad_kernel(self.WPQ[(conv_H, 0)], conv))
@@ -1464,10 +1646,22 @@ class Net():
             # setup H
             V_params = self.infer_pad_kernel(self.WPQ[conv_V], conv)
             self.set_conv(conv, new_name=conv_V, **V_params)
+            self.save_pt("temp/vh_updata")
+            
+            
+            for key in self.WPQ.keys():
+                print ("self.WPQ[",key,"].shape = ",self.WPQ[key].shape)
+
+            
             if 0:#DEBUG:
                 print("V", H_params)
                 print("H", V_params)
+
+            redprint(prefix)
+            new_pt = self.save_pt(prefix=prefix)
+
         new_pt = self.save_pt(prefix=prefix)
+
         return self.WPQ, new_pt
 
     def combineHP(self):
@@ -1480,8 +1674,11 @@ class Net():
             if conv.endswith('_P'):
                 P.append(conv)
                 continue
+
         assert len(H) == len(P)
+
         for h,p in zip(H,P):
+            print(h," ",p)
             assert h.split('_H')[0] ==  p.split('_P')[0]
             Hshape = self.param_shape(h)
             m  =Hshape[0]
@@ -1500,7 +1697,7 @@ class Net():
                 self.ch_param_b(h, newb)
                 self.set_conv(h, num_output=o)
                 self.remove(p)
-        a,b = self.save(prefix='cb')
+        a,b = self.save(prefix='-cb')
         print('-model',a,'-weights',b)
 
 
@@ -1691,7 +1888,9 @@ class Net():
         Y: deprecated
         """
         # weights,Y is None
+        redprint("[in dictionary_kernel]  the arguments: X_name[%s], Y_name[%s], d_prime[%d]"%(X_name,Y_name,d_prime))
         if not self._mem: # if we have not extracted sample features before, then extract them
+            print("shouldnt be here")
             feats_dict, points_dict = self.extract_features([X_name, Y_name], save=1)
             self.load_frozen(feats_dict=feats_dict, points_dict=points_dict )
 
@@ -1700,7 +1899,6 @@ class Net():
         h = self.param_shape(Y_name)[-1]
         w=h
         newX = np.rollaxis(X.reshape((-1, h, w, X.shape[1])), 3, 1).copy()
-
         W2 = self.param_data(Y_name)
         if dcfgs.ls != cfgs.solvers.gd or not self._mem: # add paramb # what is this? -by Mario
             if DEBUG: print("net.dictionary_kernel: dcfgs.ls is not gd or there is no MemoryData -by Mario")
@@ -1723,7 +1921,6 @@ class Net():
         else:
             Y=newX.reshape(newX.shape[0],-1).dot(W2.reshape((W2.shape[0],-1)).T)
 
-        print("rMSE", rel_error(newX.reshape((newX.shape[0],-1)).dot(W2.reshape((W2.shape[0],-1)).T), gtY))
         # performe the lasso regression -by Mario
         outputs = dictionary(newX, W2, Y, rank=d_prime, B2=self.param_b_data(Y_name))
         if dcfgs.ls == cfgs.solvers.gd: self.caffe_device() # if the solver is gd(what is gd?), set GPU operation
@@ -1732,6 +1929,7 @@ class Net():
         #self.prunedweights+= (Y_shape[1] - len(np.where(outputs[0])[0])) * (Y_shape[0]*Y_shape[2]*Y_shape[3] + X_shape[1]*X_shape[2]*X_shape[3])
         #print("pruned", self.prunedweights)
         # newX: N c h w,  W2: n c h w
+
         return outputs
 
 def load_layer(convs, frozen_layer):

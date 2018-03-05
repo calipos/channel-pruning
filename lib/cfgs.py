@@ -1,6 +1,6 @@
 from easydict import EasyDict as edict
 c=edict()
-gpu=1
+gpu=0
 dataset="imagenet" # cifar10
 caffe_vis = '0,1,2,3'
 tf_vis = '4,5,6,7'
@@ -101,11 +101,11 @@ c.ls='linear'
 c.nonlinear_fc = 0
 c.nofc=0
 c.splitconvrelu=True
-c.nBatches=500
+c.nBatches=2
 c.ntest = 0
-c.nBatches_fc=c.nBatches * 10
+c.nBatches_fc=c.nBatches * 5
 c.frozen=0
-c.nPointsPerLayer=10
+c.nPointsPerLayer=30
 c.fc_reg=True
 c.autodet = False
 c.solver=solvers.sk

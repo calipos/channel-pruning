@@ -1,4 +1,4 @@
-from __future__ import print_function
+#from __future__ import print_function
 from easydict import EasyDict as edict
 from lib.cfgs import c as dcfgs
 import lib.cfgs as cfgs
@@ -7,11 +7,11 @@ os.environ['JOBLIB_TEMP_FOLDER']=dcfgs.shm
 import argparse
 os.environ['GLOG_minloglevel'] = '3'
 import os.path as osp
-import pickle
+#import pickle
 import sys
-from multiprocessing import Process, Queue
+#from multiprocessing import Process, Queue
 
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import numpy as np
 from IPython import embed
 
@@ -19,27 +19,41 @@ from lib.decompose import *
 from lib.net import Net, load_layer, caffe_test
 from lib.utils import *
 from lib.worker import Worker
-import google.protobuf.text_format # added to fix missing protobuf properties -by Mario
+#import google.protobuf.text_format # added to fix missing protobuf properties -by Mario
 sys.path.insert(0, osp.dirname(__file__)+'/lib')
 
 def step0(pt, model):
     net = Net(pt, model=model, noTF=1)  # lib/net.Net instantiate the NetBuilder -by Mario
+    print("\tthe big model is initialized.")
     WPQ, pt, model = net.preprocess_resnet() # WPQ stores pruned values, which will be later saved to the caffemodel -by Mario
+    redprint("\tstep0 end! and ...(this step mainly change the pt:split the inpalce relu)")
+    print("\tWPQ : ",WPQ)
+    print("\tpt : ",pt)
+    print("\tmodel : ",model)
     return {"WPQ": WPQ, "pt": pt, "model": model}
 
 def step1(pt, model, WPQ, check_exist=False):
-    print(pt)
+    print("in step1 pt : ",pt)
+    print("in step1 model : ",model)
     net = Net(pt, model, noTF=1)
+    print("\tthe new model is initialized.")
+    print("in step1 WPQ : ",WPQ)
     model = net.finalmodel(WPQ) # loads weights into the caffemodel - by Mario
+    print("\tnet.finalmodel(WPQ) has done")
+
     if 1:#TODO: Consider adding a configuration paramter to cfgs.py in order to control whether or not to prune the last conv layer -by Mario
         convs = net.convs
-        redprint("including last conv layer!")
+        print("including last conv layer!")
     else:
         convs = net.convs[:-1]
-        redprint("ignoring last conv layer!")
+        print("ignoring last conv layer!")
     if dcfgs.dic.option == 1:
-        if DEBUG: redprint("This line executed because dcfgs.dic.option is set to 1 [train.step1()]")
+        print("\tif dcfgs.dic.option == 1:")
+        print("\tdcfgs.dic.option == ",dcfgs.dic.option)
+
+        if DEBUG: print("This line executed because dcfgs.dic.option is set to 1 [train.step1()]")
         sums = net.type2names('Eltwise')[:-1]
+        print("\tsums : ",sums)
         newsums = []
         for i in sums:
             if not i.endswith('block8_sum'):
@@ -50,20 +64,34 @@ def step1(pt, model, WPQ, check_exist=False):
                 newconvs.insert(0,i)
             else:
                 newconvs.append(i)
+        print("\tnewsums : ",newsums)
+        print("\tnewconvs : ",newconvs)
+        print("\tconvs : ",convs)
         convs = newsums + newconvs
+        print("\tconvs : ",convs)
     else:
+        print("\tdcfgs.dic.option == : ",dcfgs.dic.option)
+        print("\tconvs = ",convs)
+        print("\tnet.type2names('Eltwise')[:-1] = ",net.type2names('Eltwise')[:-1])
         convs += net.type2names('Eltwise')[:-1] # I guess Element-wise operations are included in ResNet or Xception -by Mario
+        print("\tconvs = ",convs)
+        assert 1==7
     if dcfgs.dic.fitfc:
         convs += net.type2names('InnerProduct')
+        print("\t\tconvs = ",convs)
     if dcfgs.model in [cfgs.Models.xception,cfgs.Models.resnet]:
         for i in net.bns:
             if 'branch1' in i:
                 convs += [i]
+        print("\t\tconvs = ",convs)
+    print("\t\tconvs = ",convs)
     net.freeze_images(check_exist=check_exist, convs=convs)
+
     return {"model":model}
 
 def combine():
-    net = Net(dcfgs.prototxt, dcfgs.weights)
+    #net = Net(dcfgs.prototxt, dcfgs.weights)
+    net = Net("temp/3c_3C4x_mem_bn_vgg.prototxt" ,model="temp/3c_vgg.caffemodel")
     net.combineHP()
 
 def c3(pt=cfgs.vgg.model,model=cfgs.vgg.weights): # TODO: Consider changing cfgs.vgg.model and cfgs.vgg.weights (paths to the .prototxt and .caffemodel files) for a generic model reference -by Mario
@@ -76,28 +104,39 @@ def c3(pt=cfgs.vgg.model,model=cfgs.vgg.weights): # TODO: Consider changing cfgs
         return {"WPQ": WPQ, "new_pt": new_pt}
 
     def stepend(new_pt, model, WPQ):
+        redprint("pt : %s"%new_pt)
+        redprint("model : %s"%model)
         net = Net(new_pt, model=model)
         net.WPQ = WPQ
+
         net.finalmodel(save=False) # load weights into the caffemodel -by Mario
+
         net.dis_memory()
+
         #final = net.finalmodel(WPQ, prefix='3r')
         new_pt, new_model = net.save(prefix='3c')
-        print('caffe test -model',new_pt, '-weights',new_model)
+        #print('caffe test -model',new_pt, '-weights',new_model)
         return {"final": None}
 
     worker = Worker()
-    outputs = worker.do(step0, pt=pt, model=model)
+    print("\tprotxt is %s"%pt)
+    print("\tcaffemodel is %s"%model)
+    #outputs = worker.do(step0, pt=pt, model=model)
+    outputs = step0(pt=pt, model=model)
     printstage("freeze")
     pt = outputs['pt']
-    outputs = worker.do(step1,**outputs)
+    print ("\tpt returned by step0 : ",pt)
+    #outputs = worker.do(step1,**outputs)
+    outputs = step1(**outputs)
     printstage("speed", dcfgs.dic.keep)
     outputs['pt'] = mem_pt(pt)
-    if 0:
-        outputs = solve(**outputs)
-    else:
-        outputs = worker.do(solve, **outputs)
+    outputs = solve(**outputs)
+    #outputs = worker.do(solve, **outputs)
     printstage("saving")
-    outputs = worker.do(stepend, model=model, **outputs)
+    outputs = stepend(model=model, **outputs)
+    
+    #outputs = stepend(model=model, new_pt="temp/3C4x_mem_bn_vgg2.prototxt",WPQ=outputs["WPQ"])
+    #outputs = worker.do(stepend, model=model, **outputs)
 
 def splitrelu():
     net = Net(dcfgs.prototxt, model=dcfgs.weights)
@@ -170,15 +209,5 @@ if __name__ == '__main__':
     dcfgs.dic.option=1
 
     DEBUG = 0
-    if args.action == cfgs.Action.addbn:
-        addbn(pt=dcfgs.prototxt, model=dcfgs.weights)
-
-    elif args.action == cfgs.Action.splitrelu:
-        splitrelu()
-
-    elif args.action == cfgs.Action.c3:
-        c3()
-    elif args.action == cfgs.Action.combine:
-        combine()
-    else:
-        pass
+    c3()
+    #combine()
